@@ -15,15 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::io::ErrorKind;
 use clap::Parser;
 use elasticsearch_core_mcp_server::cli::Cli;
+use std::io::ErrorKind;
 use tracing_subscriber::EnvFilter;
 // To test with stdio, use npx @modelcontextprotocol/inspector cargo run -p elastic-mcp
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-
     // Also accept .env files
     match dotenvy::dotenv() {
         Err(dotenvy::Error::Io(io_err)) if io_err.kind() == ErrorKind::NotFound => {}
@@ -54,7 +53,9 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Elasticsearch MCP server, version {}", env!("CARGO_PKG_VERSION"));
 
-    tracing::warn!("DEPRECATION NOTICE: This MCP server is deprecated and will only receive critical security updates going forward. It has been superseded by Elastic Agent Builder, which includes its own MCP server: https://ela.st/agent-builder-docs");
+    tracing::warn!(
+        "DEPRECATION NOTICE: This MCP server is deprecated and will only receive critical security updates going forward. It has been superseded by Elastic Agent Builder, which includes its own MCP server: https://ela.st/agent-builder-docs"
+    );
 
     cli.run().await
 }
