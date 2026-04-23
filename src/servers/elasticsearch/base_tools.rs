@@ -190,8 +190,9 @@ impl EsBaseTools {
             let total = response
                 .hits
                 .total
-                .map(|t| t.value.to_string())
-                .unwrap_or("unknown".to_string());
+                .as_ref()
+                .map(|t| t.value().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
 
             results.push(Content::text(format!(
                 "Total results: {}, showing {}.",
@@ -316,17 +317,35 @@ pub struct SearchResult {
 #[derive(Serialize, Deserialize)]
 pub struct Hits {
     pub total: Option<TotalHits>,
+    #[serde(default)]
     pub hits: Vec<Hit>,
 }
 
+/// Search `hits.total` is an object in 7.x+ but can be a plain integer with
+/// `rest_total_hits_as_int` or compatibility settings.
 #[derive(Serialize, Deserialize)]
-pub struct TotalHits {
-    pub value: u64,
+#[serde(untagged)]
+pub enum TotalHits {
+    Object {
+        value: u64,
+        #[serde(default)]
+        relation: Option<String>,
+    },
+    Integer(u64),
+}
+
+impl TotalHits {
+    pub fn value(&self) -> u64 {
+        match self {
+            TotalHits::Object { value, .. } => *value,
+            TotalHits::Integer(n) => *n,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Hit {
-    #[serde(rename = "_source")]
+    #[serde(rename = "_source", default)]
     pub source: Value,
 }
 
@@ -366,13 +385,15 @@ pub struct Mappings {
 pub struct Mapping {
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<JsonObject>,
+    #[serde(default)]
     properties: HashMap<String, MappingProperty>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct MappingProperty {
-    #[serde(rename = "type")]
-    pub type_: String,
+    /// Omitted when a field is only a `properties` object (ES default object mapping).
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub type_: Option<String>,
     #[serde(flatten)]
     pub settings: HashMap<String, serde_json::Value>,
 }
@@ -387,8 +408,8 @@ pub struct EsqlQueryRequest {
 #[derive(Serialize, Deserialize)]
 pub struct Column {
     pub name: String,
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub type_: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -396,4 +417,47 @@ pub struct EsqlQueryResponse {
     pub is_partial: Option<bool>,
     pub columns: Vec<Column>,
     pub values: Vec<Vec<Value>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Object field may omit `type` when it only has `properties` (valid ES mapping JSON).
+    #[test]
+    fn mapping_property_deserializes_without_type() {
+        let json = r#"{
+            "mappings": {
+                "properties": {
+                    "title": { "type": "text" },
+                    "comments": {
+                        "properties": {
+                            "user": { "type": "keyword" }
+                        }
+                    }
+                }
+            }
+        }"#;
+        let parsed: Mappings = serde_json::from_str(json).expect("mappings with implicit object type");
+        let comments = &parsed.mappings.properties.get("comments").expect("comments field");
+        assert!(comments.type_.is_none());
+        assert!(comments.settings.contains_key("properties"));
+    }
+
+    #[test]
+    fn mapping_deserializes_without_properties_key() {
+        let json = r#"{ "mappings": { "dynamic": "strict" } }"#;
+        let parsed: Mappings = serde_json::from_str(json).expect("mappings with no properties");
+        assert!(parsed.mappings.properties.is_empty());
+    }
+
+    #[test]
+    fn search_hits_total_accepts_int_or_object() {
+        let with_object: SearchResult =
+            serde_json::from_str(r#"{"hits":{"total":{"value":3,"relation":"eq"},"hits":[]}}"#).expect("object total");
+        assert_eq!(with_object.hits.total.unwrap().value(), 3);
+
+        let with_int: SearchResult = serde_json::from_str(r#"{"hits":{"total":3,"hits":[]}}"#).expect("int total");
+        assert_eq!(with_int.hits.total.unwrap().value(), 3);
+    }
 }
