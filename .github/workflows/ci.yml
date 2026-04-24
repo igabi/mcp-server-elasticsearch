@@ -4,9 +4,10 @@
 # Rust checks align with what teams typically run locally and in review:
 #   cargo fmt --check, cargo clippy, cargo test
 # Docker image is built on every run; published to GHCR on push to the default
-# branch(es) and on v* version tags. Tags are created by the Release (semantic-release)
-# workflow. Tag builds get semver/v* image tags and pass VERSION from the git tag
-# to the image (ELASTIC_MCP_VERSION).
+# branch(es) and on v* version tags. For releases, the primary tags are the **git
+# tag** (e.g. ghcr.io/.../...:v1.0.0), with semver/latest/sha as extra aliases — not
+# the Cargo package version in isolation. ELASTIC_MCP_VERSION matches the ref name
+# (including the v) on tag builds.
 #
 # GHCR: grant "read/write" for packages in repo Actions settings if the job fails
 # to push (rare; default GITHUB_TOKEN is usually enough for same-repo pushes).
@@ -81,13 +82,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image.outputs.name }}
+          # Tag releases: the **git ref name** (e.g. v1.0.0) is listed first, then
+          # SemVer aliases (1.0.0, 1.0) so the image matches the tag, not only bare package semver.
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            type=ref,event=branch
+            type=ref,event=pr
           flavor: |
             latest=auto
 
@@ -99,7 +102,13 @@ jobs:
           file: ./Dockerfile
           push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) }}
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # Pin OCI `version` to the git ref (e.g. v1.0.0 on a tag), not only semver from metadata
+          # (which is often 1.0.0 without the v prefix and can diverge from the release tag).
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.source=${{ format('https://github.com/{0}', github.repository) }}
+            org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0+sha.{0}', github.sha) }}
           # GHA cache can 504 on large mode=max exports; min + ignore-error keeps CI green.
