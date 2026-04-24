@@ -3,11 +3,11 @@
 #
 # Rust checks align with what teams typically run locally and in review:
 #   cargo fmt --check, cargo clippy, cargo test
-# Docker image is built on every run; published to GHCR on push to the default
-# branch(es) and on v* version tags. For releases, the primary tags are the **git
-# tag** (e.g. ghcr.io/.../...:v1.0.0), with semver/latest/sha as extra aliases — not
-# the Cargo package version in isolation. ELASTIC_MCP_VERSION matches the ref name
-# (including the v) on tag builds.
+# Docker: GHCR is updated on push to main/master, on tag push of v* **when that push
+# does not use GITHUB_TOKEN** (e.g. manual or PAT), and on `release: published` when
+# the Release is created (e.g. semantic-release, which pushes tags with GITHUB_TOKEN —
+# that tag push does *not* start another workflow, but the Release *does*). Checkout
+# fetch-depth:0 + context:git helps metadata-action resolve semver tags.
 #
 # GHCR: grant "read/write" for packages in repo Actions settings if the job fails
 # to push (rare; default GITHUB_TOKEN is usually enough for same-repo pushes).
@@ -21,9 +21,11 @@ name: CI
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+  release:
+    types: [published]
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,6 +40,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -59,6 +63,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history: metadata-action (context: git) can resolve tags / semver
+          # correctly; shallow clones sometimes omit tag metadata the action needs.
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
       - name: Set GHCR image name (must be lower case)
         id: image
@@ -70,7 +79,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'release' && github.event.action == 'published')
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -81,18 +90,27 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          # Resolve refs from git; workflow-only context can miss tag/semver in edge cases
+          context: git
           images: ${{ steps.image.outputs.name }}
-          # Tag releases: the **git ref name** (e.g. v1.0.0) is listed first, then
-          # SemVer aliases (1.0.0, 1.0) so the image matches the tag, not only bare package semver.
+          # Branch pushes: :main, :sha-*. Tag pushes: :v1.0.1, :1.0.1, :1.0, :latest, :sha-*
+          # (do not apply branch/PR ref types on tag — they are empty or wrong).
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=ref,event=branch
-            type=ref,event=pr
+            type=ref,event=tag,enable=${{ github.ref_type == 'tag' || (github.event_name == 'release' && github.event.action == 'published') }}
+            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' || (github.event_name == 'release' && github.event.action == 'published') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' || (github.event_name == 'release' && github.event.action == 'published') }}
+            type=sha,enable=true
+            # Only "push" to a branch, not the release event (ref can be a branch in that case).
+            type=ref,event=branch,enable=${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+            type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
           flavor: |
             latest=auto
+
+      - name: Log resolved Docker tags (tag or release)
+        if: github.ref_type == 'tag' || (github.event_name == 'release' && github.event.action == 'published')
+        run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "${{ steps.meta.outputs.tags }}"
 
       - name: Build and push
         id: build
@@ -100,17 +118,17 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) }}
+          push: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'release' && github.event.action == 'published') }}
           tags: ${{ steps.meta.outputs.tags }}
           # Pin OCI `version` to the git ref (e.g. v1.0.0 on a tag), not only semver from metadata
           # (which is often 1.0.0 without the v prefix and can diverge from the release tag).
           labels: |
             ${{ steps.meta.outputs.labels }}
-            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.version=${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
             org.opencontainers.image.source=${{ format('https://github.com/{0}', github.repository) }}
             org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
-            VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0+sha.{0}', github.sha) }}
+            VERSION=${{ (github.event_name == 'release' && github.event.release.tag_name) || (github.ref_type == 'tag' && github.ref_name) || format('0.0.0+sha.{0}', github.sha) }}
           # GHA cache can 504 on large mode=max exports; min + ignore-error keeps CI green.
           cache-from: type=gha
           cache-to: type=gha,mode=min,ignore-error=true
