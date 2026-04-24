@@ -49,16 +49,16 @@ schemars = { version = "0.8", features = ["chrono"] }
 reqwest = "0.12"
 futures-util = "0.3"
 
-# MCP rust sdk: main branch, 2025-06-26
+# MCP rust sdk (0.2.x). Stay on 0.2 until a full rmcp 1.x migration. Renovate: major
+# bumps for rmcp are disabled in renovate.json.
 [dependencies.rmcp]
+version = "0.2.1"
 features = [
     "server", "auth",
     "transport-sse-server", "transport-streamable-http-server",
     "transport-io", # stdio
     "client", "transport-sse-client", "transport-streamable-http-client", "transport-child-process",
 ]
-# Keep rev in sync with rmcp-macros below
-version = "0.2.1"
 
 [dependencies.rmcp-macros]
 version = "0.2.1"

@@ -5,5 +5,14 @@
   ],
   "schedule": [
     "after 1am on monday"
+  ],
+  "packageRules": [
+    {
+      "description": "rmcp 1.x needs a code migration; stay on 0.2 for now",
+      "matchDatasources": ["crate"],
+      "matchPackageNames": ["rmcp", "rmcp-macros"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
   ]
 }
