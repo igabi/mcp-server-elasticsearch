@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/igabi/mcp-server-elasticsearch/compare/v1.0.1...v1.0.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* run pipeline on tag ([49fe0d6](https://github.com/igabi/mcp-server-elasticsearch/commit/49fe0d6c85a88855413e3b46d31db6c772ab2c15))
+
 ## [1.0.1](https://github.com/igabi/mcp-server-elasticsearch/compare/v1.0.0...v1.0.1) (2026-04-24)
 
 
