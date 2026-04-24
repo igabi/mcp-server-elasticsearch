@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Analyzes conventional commits on main/master, bumps Cargo.toml / CHANGELOG,
-# creates a Git tag (vX.Y.Z) and GitHub Release. The tag push triggers CI to
-# publish the Docker image with matching version tags.
+# creates a Git tag (vX.Y.Z) and GitHub Release. Pushes with GITHUB_TOKEN do not
+# start tag-push workflows; the published GitHub Release triggers CI to publish
+# the Docker image with matching version tags (or use a PAT in semantic-release
+# if you need tag push workflows to run as well).
 
 name: Release
 
