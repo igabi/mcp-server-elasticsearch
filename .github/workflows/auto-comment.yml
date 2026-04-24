@@ -1,5 +1,10 @@
-# Uses the default GITHUB_TOKEN provided to every workflow run. No custom secrets
-# or tokens from an external system are required (issue and PR write access only).
+# Uses the default GITHUB_TOKEN. Comments use the issues API; PRs require
+# pull-requests: write in addition to issues: write, or the API returns 403
+# (Resource not accessible by integration).
+#
+# If 403 persists: Repo Settings > Actions > General > "Workflow permissions":
+#   enable "Read and write permissions" (or allow the workflow to request
+#   permissions required by the job).
 
 name: Add comment
 on:
@@ -12,7 +17,9 @@ jobs:
   add-comment:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
+      pull-requests: write
     steps:
       - name: Add comment
         uses: actions/github-script@v7
