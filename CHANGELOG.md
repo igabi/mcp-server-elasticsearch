@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/igabi/mcp-server-elasticsearch/compare/v1.0.0...v1.0.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* create image:tag on new tag ([52b91b9](https://github.com/igabi/mcp-server-elasticsearch/commit/52b91b96eb5bfe9c00061d1608127144f09baea5))
+
 # 1.0.0 (2026-04-24)
 
 
